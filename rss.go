@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/xml"
 )
 
 type RSSFeed struct {
@@ -21,5 +22,11 @@ type RSSItem struct {
 }
 
 func fetchFeed(ctx context.Context, feedURL string) (*RSSFeed, error) {
-	return nil, nil
+	var retFeed RSSFeed
+	buf, err := getBytesfromUrl(ctx, feedURL)
+	if err != nil {
+		return nil, err
+	}
+	xml.Unmarshal(buf, &retFeed)
+	return &retFeed, err
 }

@@ -7,15 +7,20 @@ import (
 	"os"
 	"time"
 
+	//"html"
+
 	// "strings"
 	"github.com/google/uuid"
 	"github.com/pollei/bootdev_blogagg_go/internal/database"
 )
 
+type cmdCallback func([]string) error
+
 type cliCommand struct {
 	name        string
 	description string
-	callback    func([]string) error
+	//callback    func([]string) error
+	callback cmdCallback
 }
 
 type cliCommands struct {
@@ -37,6 +42,15 @@ func (c *cliCommands) register(cmds ...cliCommand) error {
 		c.cmdList[cmd.name] = cmd
 	}
 	return nil
+}
+
+func middlewareLoggedIn(hand cmdCallback) cmdCallback {
+	return func(args []string) error {
+		if mainGLOBS.user == nil {
+			return errors.New("must be logged in")
+		}
+		return hand(args)
+	}
 }
 
 func commandExit([]string) error {
@@ -107,6 +121,134 @@ func commandUsers([]string) error {
 
 	}
 	return err
+}
+
+func commandAgg([]string) error {
+	bgCtx := context.Background()
+	feed, err := fetchFeed(bgCtx, "https://www.wagslane.dev/index.xml")
+	if err != nil {
+		return err
+	}
+	// https://pkg.go.dev/html#UnescapeString
+	fmt.Printf("%v \n", feed)
+	inter, err := time.ParseDuration("1h")
+	if err != nil {
+		mainGLOBS.agg.interval = inter
+	}
+
+	return nil
+}
+
+func commandAddFeed(args []string) error {
+	if len(args) <= 2 {
+		return errors.New("not enough arguments")
+	}
+	if mainGLOBS.user == nil {
+		return errors.New("must be logged in")
+	}
+	bgCtx := context.Background()
+	feedParams := database.CreateFeedParams{
+		ID: uuid.New(), CreatedAt: time.Now(), UpdatedAt: time.Now(),
+		Name: args[1], Url: args[2], UserID: mainGLOBS.curUserUUID}
+	feed, err := mainGLOBS.dbQueries.CreateFeed(bgCtx, feedParams)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("created feed \"%s\" \"%s\" -> %v \n", args[1], args[1], feed)
+	ffParams := database.CreateFeedFollowParams{
+		ID: uuid.New(), CreatedAt: time.Now(), UpdatedAt: time.Now(),
+		FeedID: feed.ID, UserID: mainGLOBS.curUserUUID,
+	}
+	ff, err := mainGLOBS.dbQueries.CreateFeedFollow(bgCtx, ffParams)
+	if err != nil {
+		fmt.Printf("feed follow err %v \n ", err)
+		return err
+	}
+	fmt.Printf(" %s is now following %s \n", ff.UserName, ff.FeedName)
+	return nil
+}
+func commandFeeds([]string) error {
+	bgCtx := context.Background()
+	feeds, err := mainGLOBS.dbQueries.GetFeedsSummary(bgCtx)
+	if err != nil {
+		fmt.Printf("feed err %v \n ", err)
+		return err
+	}
+	fmt.Println("FEEDS: ")
+	//fmt.Printf(" %d ", len(feeds))
+	for _, fd := range feeds {
+		fmt.Printf(" %s %s %s -> %v \n", fd.Name, fd.Url, fd.UserName, fd)
+	}
+	return nil
+}
+func commandFollow(args []string) error {
+	if len(args) <= 1 {
+		return errors.New("not enough arguments")
+	}
+	if mainGLOBS.user == nil {
+		return errors.New("must be logged in")
+	}
+	bgCtx := context.Background()
+	feed, err := mainGLOBS.dbQueries.GetFeedByUrl(bgCtx, args[1])
+	if err != nil {
+		return err
+	}
+	ffParams := database.CreateFeedFollowParams{
+		ID: uuid.New(), CreatedAt: time.Now(), UpdatedAt: time.Now(),
+		FeedID: feed.ID, UserID: mainGLOBS.curUserUUID,
+	}
+	ff, err := mainGLOBS.dbQueries.CreateFeedFollow(bgCtx, ffParams)
+	if err != nil {
+		fmt.Printf("feed follow err %v \n ", err)
+		return err
+	}
+	fmt.Printf(" %s is now following %s \n", ff.UserName, ff.FeedName)
+	return nil
+}
+
+func commandUnfollow(args []string) error {
+	if len(args) <= 1 {
+		return errors.New("not enough arguments")
+	}
+	if mainGLOBS.user == nil {
+		return errors.New("must be logged in")
+	}
+	bgCtx := context.Background()
+	feed, err := mainGLOBS.dbQueries.GetFeedByUrl(bgCtx, args[1])
+	if err != nil {
+		return err
+	}
+	delParams := database.DeleteFeedFollowByFeedIdParams{
+		UserID: mainGLOBS.curUserUUID, FeedID: feed.ID}
+	err = mainGLOBS.dbQueries.DeleteFeedFollowByFeedId(bgCtx, delParams)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func commandFollowing([]string) error {
+	if mainGLOBS.user == nil {
+		return errors.New("must be logged in")
+	}
+	bgCtx := context.Background()
+	itFollows, err := mainGLOBS.dbQueries.GetFeedFollowsByUserId(bgCtx, mainGLOBS.curUserUUID)
+	if err != nil {
+		fmt.Printf("following err %v \n ", err)
+		return err
+	}
+	for _, follow := range itFollows {
+		fmt.Printf("%s \n", follow.FeedName)
+	}
+	return nil
+}
+
+func commandBrowse(args []string) error {
+	if len(args) <= 1 {
+		return errors.New("not enough arguments")
+	}
+	fmt.Println("command Not Implemented Yet")
+	return nil
 }
 
 func commandNotImplementedYet([]string) error {

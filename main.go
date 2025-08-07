@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"os"
 	"strings"
 
+	"github.com/google/uuid"
 	_ "github.com/lib/pq"
 
 	"github.com/pollei/bootdev_blogagg_go/internal/config"
@@ -13,10 +15,13 @@ import (
 )
 
 type mainEvilGlobals struct {
-	conf      *config.Config
-	cmds      *cliCommands
-	db        *sql.DB
-	dbQueries *database.Queries
+	conf        *config.Config
+	cmds        *cliCommands
+	db          *sql.DB
+	dbQueries   *database.Queries
+	user        *database.User
+	curUserUUID uuid.UUID
+	agg         *aggController
 }
 
 var mainGLOBS mainEvilGlobals
@@ -54,6 +59,41 @@ func (g *mainEvilGlobals) init() error {
 		cliCommand{
 			name:        "agg",
 			description: "aggre with the Gator",
+			callback:    commandAgg,
+		},
+		cliCommand{
+			name:        "addfeed",
+			description: "add a feed to the Gator",
+			callback:    middlewareLoggedIn(commandAddFeed),
+		},
+		cliCommand{
+			name:        "feeds",
+			description: "list feeds in the Gator",
+			callback:    commandFeeds,
+		},
+		cliCommand{
+			name:        "follow",
+			description: "follow rss by url using the Gator",
+			callback:    middlewareLoggedIn(commandFollow),
+		},
+		cliCommand{
+			name:        "following",
+			description: " the Gator",
+			callback:    middlewareLoggedIn(commandFollowing),
+		},
+		cliCommand{
+			name:        "unfollow",
+			description: " the Gator",
+			callback:    middlewareLoggedIn(commandUnfollow),
+		},
+		cliCommand{
+			name:        "browse",
+			description: " the Gator",
+			callback:    commandBrowse,
+		},
+		cliCommand{
+			name:        "search",
+			description: " the Gator",
 			callback:    commandNotImplementedYet,
 		},
 		cliCommand{
@@ -67,6 +107,15 @@ func (g *mainEvilGlobals) init() error {
 	}
 	g.db = db
 	g.dbQueries = database.New(db)
+	if g.conf.User_name != "" {
+		bgCtx := context.Background()
+		usr, err := mainGLOBS.dbQueries.GetUserByName(bgCtx, g.conf.User_name)
+		if err == nil {
+			g.user = &usr
+			g.curUserUUID = usr.ID
+		}
+
+	}
 
 	return nil
 }
