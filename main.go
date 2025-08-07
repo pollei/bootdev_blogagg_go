@@ -7,7 +7,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/google/uuid"
 	_ "github.com/lib/pq"
 
 	"github.com/pollei/bootdev_blogagg_go/internal/config"
@@ -15,13 +14,13 @@ import (
 )
 
 type mainEvilGlobals struct {
-	conf        *config.Config
-	cmds        *cliCommands
-	db          *sql.DB
-	dbQueries   *database.Queries
-	user        *database.User
-	curUserUUID uuid.UUID
-	agg         *aggController
+	conf      *config.Config
+	cmds      *cliCommands
+	db        *sql.DB
+	dbQueries *database.Queries
+	currUser  *database.User
+	//curUserUUID uuid.UUID
+	aggControl *aggController
 }
 
 var mainGLOBS mainEvilGlobals
@@ -111,8 +110,8 @@ func (g *mainEvilGlobals) init() error {
 		bgCtx := context.Background()
 		usr, err := mainGLOBS.dbQueries.GetUserByName(bgCtx, g.conf.User_name)
 		if err == nil {
-			g.user = &usr
-			g.curUserUUID = usr.ID
+			g.currUser = &usr
+			//g.curUserUUID = usr.ID
 		}
 
 	}

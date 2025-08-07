@@ -46,7 +46,7 @@ func (c *cliCommands) register(cmds ...cliCommand) error {
 
 func middlewareLoggedIn(hand cmdCallback) cmdCallback {
 	return func(args []string) error {
-		if mainGLOBS.user == nil {
+		if mainGLOBS.currUser == nil {
 			return errors.New("must be logged in")
 		}
 		return hand(args)
@@ -86,14 +86,15 @@ func commandRegister(args []string) error {
 		return errors.New("dirty name")
 	}
 	bgCtx := context.Background()
-	oldUsr, err := mainGLOBS.dbQueries.GetUserByName(bgCtx, args[1])
+	_, err := mainGLOBS.dbQueries.GetUserByName(bgCtx, args[1])
 	if err == nil {
-		return errors.New("user with that name already exists")
+		return errors.New("user with that name already exists ")
 	}
-	fmt.Printf("got old usr %v %v \n", oldUsr, err)
+	//fmt.Printf("got old usr %v %v \n", oldUsr, err)
+	now := time.Now().UTC()
 	usrParams := database.CreateUserParams{
 		ID:        uuid.New(),
-		CreatedAt: time.Now(), UpdatedAt: time.Now(), Name: args[1]}
+		CreatedAt: now, UpdatedAt: now, Name: args[1]}
 	usr, err := mainGLOBS.dbQueries.CreateUser(bgCtx, usrParams)
 	if err != nil {
 		return err
@@ -123,8 +124,28 @@ func commandUsers([]string) error {
 	return err
 }
 
-func commandAgg([]string) error {
-	bgCtx := context.Background()
+func commandAgg(args []string) error {
+	var durStr string
+	if len(args) <= 1 {
+		durStr = "2h"
+	} else {
+		durStr = args[1]
+	}
+	timeBetweenRequests, err := time.ParseDuration(durStr)
+	if err != nil {
+		fmt.Printf("duration was not understood: %v \n", err)
+		return err
+	}
+	ac := aggController{interval: timeBetweenRequests}
+	mainGLOBS.aggControl = &ac
+	mainGLOBS.aggControl.tick = time.NewTicker(timeBetweenRequests)
+	fmt.Printf("Collecting feeds every %v \n", timeBetweenRequests)
+
+	for ; ; <-mainGLOBS.aggControl.tick.C {
+		scrapeFeeds()
+	}
+
+	/* bgCtx := context.Background()
 	feed, err := fetchFeed(bgCtx, "https://www.wagslane.dev/index.xml")
 	if err != nil {
 		return err
@@ -134,30 +155,31 @@ func commandAgg([]string) error {
 	inter, err := time.ParseDuration("1h")
 	if err != nil {
 		mainGLOBS.agg.interval = inter
-	}
+	} */
 
-	return nil
+	//return nil
 }
 
 func commandAddFeed(args []string) error {
 	if len(args) <= 2 {
 		return errors.New("not enough arguments")
 	}
-	if mainGLOBS.user == nil {
+	if mainGLOBS.currUser == nil {
 		return errors.New("must be logged in")
 	}
 	bgCtx := context.Background()
+	now := time.Now().UTC()
 	feedParams := database.CreateFeedParams{
-		ID: uuid.New(), CreatedAt: time.Now(), UpdatedAt: time.Now(),
-		Name: args[1], Url: args[2], UserID: mainGLOBS.curUserUUID}
+		ID: uuid.New(), CreatedAt: now, UpdatedAt: now,
+		Name: args[1], Url: args[2], UserID: mainGLOBS.currUser.ID}
 	feed, err := mainGLOBS.dbQueries.CreateFeed(bgCtx, feedParams)
 	if err != nil {
 		return err
 	}
 	fmt.Printf("created feed \"%s\" \"%s\" -> %v \n", args[1], args[1], feed)
 	ffParams := database.CreateFeedFollowParams{
-		ID: uuid.New(), CreatedAt: time.Now(), UpdatedAt: time.Now(),
-		FeedID: feed.ID, UserID: mainGLOBS.curUserUUID,
+		ID: uuid.New(), CreatedAt: now, UpdatedAt: now,
+		FeedID: feed.ID, UserID: mainGLOBS.currUser.ID,
 	}
 	ff, err := mainGLOBS.dbQueries.CreateFeedFollow(bgCtx, ffParams)
 	if err != nil {
@@ -185,7 +207,7 @@ func commandFollow(args []string) error {
 	if len(args) <= 1 {
 		return errors.New("not enough arguments")
 	}
-	if mainGLOBS.user == nil {
+	if mainGLOBS.currUser == nil {
 		return errors.New("must be logged in")
 	}
 	bgCtx := context.Background()
@@ -193,9 +215,10 @@ func commandFollow(args []string) error {
 	if err != nil {
 		return err
 	}
+	now := time.Now().UTC()
 	ffParams := database.CreateFeedFollowParams{
-		ID: uuid.New(), CreatedAt: time.Now(), UpdatedAt: time.Now(),
-		FeedID: feed.ID, UserID: mainGLOBS.curUserUUID,
+		ID: uuid.New(), CreatedAt: now, UpdatedAt: now,
+		FeedID: feed.ID, UserID: mainGLOBS.currUser.ID,
 	}
 	ff, err := mainGLOBS.dbQueries.CreateFeedFollow(bgCtx, ffParams)
 	if err != nil {
@@ -210,7 +233,7 @@ func commandUnfollow(args []string) error {
 	if len(args) <= 1 {
 		return errors.New("not enough arguments")
 	}
-	if mainGLOBS.user == nil {
+	if mainGLOBS.currUser == nil {
 		return errors.New("must be logged in")
 	}
 	bgCtx := context.Background()
@@ -219,7 +242,7 @@ func commandUnfollow(args []string) error {
 		return err
 	}
 	delParams := database.DeleteFeedFollowByFeedIdParams{
-		UserID: mainGLOBS.curUserUUID, FeedID: feed.ID}
+		UserID: mainGLOBS.currUser.ID, FeedID: feed.ID}
 	err = mainGLOBS.dbQueries.DeleteFeedFollowByFeedId(bgCtx, delParams)
 	if err != nil {
 		return err
@@ -228,11 +251,11 @@ func commandUnfollow(args []string) error {
 }
 
 func commandFollowing([]string) error {
-	if mainGLOBS.user == nil {
+	if mainGLOBS.currUser == nil {
 		return errors.New("must be logged in")
 	}
 	bgCtx := context.Background()
-	itFollows, err := mainGLOBS.dbQueries.GetFeedFollowsByUserId(bgCtx, mainGLOBS.curUserUUID)
+	itFollows, err := mainGLOBS.dbQueries.GetFeedFollowsByUserId(bgCtx, mainGLOBS.currUser.ID)
 	if err != nil {
 		fmt.Printf("following err %v \n ", err)
 		return err
