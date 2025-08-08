@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"time"
 
 	//"html"
@@ -267,10 +268,25 @@ func commandFollowing([]string) error {
 }
 
 func commandBrowse(args []string) error {
-	if len(args) <= 1 {
-		return errors.New("not enough arguments")
+	postLimit := 2
+	if len(args) > 1 {
+		v, err := strconv.Atoi(args[1])
+		if err == nil {
+			postLimit = v
+		}
 	}
-	fmt.Println("command Not Implemented Yet")
+	bgCtx := context.Background()
+	getParam := database.GetPostsByUserIdParams{
+		UserID: mainGLOBS.currUser.ID, Limit: int32(postLimit),
+	}
+	posts, err := mainGLOBS.dbQueries.GetPostsByUserId(bgCtx, getParam)
+	if err != nil {
+		return err
+	}
+	for _, pst := range posts {
+		fmt.Printf("post %v \n", pst)
+	}
+
 	return nil
 }
 

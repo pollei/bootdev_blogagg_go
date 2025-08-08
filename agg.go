@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
-	//"database/sql"
+	"database/sql"
 	"fmt"
-	"sync"
+
+	//"sync"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/pollei/bootdev_blogagg_go/internal/database"
 )
@@ -13,8 +16,8 @@ import (
 type aggController struct {
 	tick     *time.Ticker
 	interval time.Duration
-	done     chan bool
-	mutx     sync.Mutex
+	//done     chan bool
+	//mutx     sync.Mutex
 }
 
 func scrapeFeeds() {
@@ -49,6 +52,23 @@ func scrapeFeeds() {
 	// https://pkg.go.dev/html#UnescapeString
 	fmt.Printf("feed channel title %s \n", feedBuf.Channel.Title)
 	for _, itm := range feedBuf.Channel.Item {
-		fmt.Printf("item title %s \n", itm.Title)
+		if len(itm.Title) <= 0 {
+			continue
+		}
+		fmt.Printf("item title %s pubDate %s \n", itm.Title, itm.PubDate)
+		pubT1123, err := time.Parse(time.RFC1123, itm.PubDate)
+		if err == nil {
+			//fmt.Printf("rfc3339 is %v \n", pubT1123)
+			// sql.NullString( itm.Title)
+			sqlTitle := sql.NullString{String: itm.Title, Valid: true}
+			sqlDesc := sql.NullString{String: itm.Description}
+			sqlDesc.Valid = len(itm.Description) > 0
+			postParam := database.CreatePostParams{
+				ID: uuid.New(), CreatedAt: now, UpdatedAt: now,
+				FeedID: feed.ID, Title: sqlTitle, PublishedAt: pubT1123,
+				Url: itm.Link, Description: sqlDesc,
+			}
+			mainGLOBS.dbQueries.CreatePost(bgCtx, postParam)
+		}
 	}
 }
